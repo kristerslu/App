@@ -1,72 +1,101 @@
-// 1. Mock Database (To be replaced with API later)
-const events = [
-    { id: 1, title: "Turnhout Zomerbar Grand Opening", date: "Friday, June 12", location: "Stadspark Turnhout", category: "zomerbar", image: "https://images.unsplash.com/photo-1533143716616-98188af41df6?auto=format&fit=crop&w=400&q=80" },
-    { id: 2, title: "Kempen Padel Open (Amateur)", date: "Saturday, June 13", location: "Padelclub Turnhout", category: "padel", image: "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?auto=format&fit=crop&w=400&q=80" },
-    { id: 3, title: "Acoustic Sunset Sessions", date: "Sunday, June 14", location: "Kasteelplein", category: "music", image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=400&q=80" },
-    { id: 4, title: "Secret Garden Pop-up", date: "Next Friday", location: "Vosselaar Woods", category: "zomerbar", image: "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=400&q=80" }
-];
+// --- CONFIGURATION ---
+// You will replace this with your real key from Platform Publiq later
+const PUBLIQ_API_KEY = 'YOUR_API_KEY_HERE'; 
+const POSTAL_CODE = '2300'; // Turnhout
 
-// 2. Your E-commerce Injection (The Monetization)
-const sponsorAd = {
-    title: "Level Up Your Padel Game",
-    description: "Premium, water-resistant padel bags designed in the Kempen. Get 15% off this weekend.",
-    buttonText: "Shop Now",
-    image: "https://images.unsplash.com/photo-1592709823126-7a725176b9df?auto=format&fit=crop&w=400&q=80",
-    link: "https://your-shopify-store.com"
-};
+let appEvents = []; // Global state to hold fetched events
 
-// 3. Render Function
-function renderFeed(filter = 'all') {
+// --- 1. FETCH LIVE DATA ---
+async function initializeApp() {
     const feed = document.getElementById('event-feed');
-    feed.innerHTML = ''; // Clear current feed
+    feed.innerHTML = '<div class="text-center mt-20"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto"></div><p class="text-gray-500 mt-4 font-medium">Finding events in the Kempen...</p></div>';
 
-    // Filter logic
-    const filteredEvents = filter === 'all' ? events : events.filter(e => e.category === filter);
-
-    if (filteredEvents.length === 0) {
-        feed.innerHTML = '<p class="text-center text-gray-500 mt-10">No events found for this category yet.</p>';
+    if (PUBLIQ_API_KEY === 'YOUR_API_KEY_HERE') {
+        console.warn("No API key detected. Booting in Demo Mode.");
+        appEvents = getMockData(); // Load dummy data for UI testing
+        setTimeout(() => renderFeed('all'), 800);
         return;
     }
 
-    // Build the UI
+    try {
+        // Fetching real events from UiTdatabank for Turnhout area
+        const response = await fetch(`https://search.uitdatabank.be/events/?q=postalCode:${POSTAL_CODE}&embed=true&limit=15`, {
+            headers: { 'X-Api-Key': PUBLIQ_API_KEY }
+        });
+        
+        if (!response.ok) throw new Error('API Request Failed');
+        
+        const data = await response.json();
+        
+        // Map the complex Publiq JSON into our clean App format
+        appEvents = data.member.map((item, index) => ({
+            id: item['@id'] || `event-${index}`,
+            title: item.name?.nl || item.name || 'Local Event',
+            date: item.startDate ? new Date(item.startDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute:'2-digit' }) : 'Date TBA',
+            location: item.location?.name?.nl || 'Turnhout',
+            category: item.terms ? item.terms[0]?.label : 'Event',
+            image: item.image || 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=400&q=80',
+            description: item.description?.nl || 'Join us for this exciting local event in the heart of the Kempen.',
+            link: item.url || item['@id']
+        }));
+
+        renderFeed('all');
+
+    } catch (error) {
+        console.error("Fetch error:", error);
+        appEvents = getMockData(); // Graceful fallback
+        renderFeed('all');
+    }
+}
+
+// --- 2. RENDER THE UI ---
+function renderFeed(filter = 'all') {
+    const feed = document.getElementById('event-feed');
+    feed.innerHTML = ''; 
+
+    // Normalize filter matching
+    const filteredEvents = filter === 'all' 
+        ? appEvents 
+        : appEvents.filter(e => e.category.toLowerCase().includes(filter.toLowerCase()) || e.id.includes(filter));
+
+    if (filteredEvents.length === 0) {
+        feed.innerHTML = '<p class="text-center text-gray-500 mt-10">No events found for this filter.</p>';
+        return;
+    }
+
     filteredEvents.forEach((event, index) => {
-        // Create Event Card
         const card = document.createElement('div');
-        card.className = 'bg-white rounded-xl shadow-sm mb-5 overflow-hidden border border-gray-100';
+        // Make the entire card clickable
+        card.className = 'bg-white rounded-2xl shadow-sm mb-5 overflow-hidden border border-gray-100 cursor-pointer transform transition hover:shadow-md hover:-translate-y-1';
+        card.onclick = () => openModal(event.id); 
+        
         card.innerHTML = `
-            <img src="${event.image}" alt="${event.title}" class="w-full h-40 object-cover">
-            <div class="p-4">
-                <p class="text-xs font-semibold text-indigo-600 mb-1 uppercase tracking-wider">${event.category}</p>
-                <h2 class="text-lg font-bold text-gray-900 leading-tight mb-1">${event.title}</h2>
+            <img src="${event.image}" alt="${event.title}" class="w-full h-44 object-cover">
+            <div class="p-5">
+                <p class="text-[10px] font-bold text-indigo-600 mb-1.5 uppercase tracking-widest">${event.category}</p>
+                <h2 class="text-lg font-extrabold text-gray-900 leading-tight mb-2">${event.title}</h2>
                 <div class="flex items-center text-gray-500 text-sm mt-2">
-                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                    <span>${event.date}</span>
-                </div>
-                <div class="flex items-center text-gray-500 text-sm mt-1">
-                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <span>${event.location}</span>
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <span class="truncate">${event.date}</span>
                 </div>
             </div>
         `;
         feed.appendChild(card);
 
-        // Inject Ad after the 2nd event
+        // Inject your eCommerce Ad after the 2nd event
         if (index === 1) {
             const adCard = document.createElement('div');
-            adCard.className = 'bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl shadow-md mb-5 overflow-hidden text-white';
+            adCard.className = 'bg-gradient-to-br from-gray-900 to-indigo-900 rounded-2xl shadow-md mb-5 overflow-hidden text-white flex cursor-pointer';
+            adCard.onclick = () => window.open('https://your-shopify-store.com', '_blank');
             adCard.innerHTML = `
-                <div class="flex">
-                    <div class="p-4 flex-1">
-                        <span class="bg-black bg-opacity-20 text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">Sponsored</span>
-                        <h3 class="font-bold text-lg mt-2">${sponsorAd.title}</h3>
-                        <p class="text-sm text-indigo-100 mt-1 line-clamp-2">${sponsorAd.description}</p>
-                        <a href="${sponsorAd.link}" target="_blank" class="inline-block mt-3 bg-white text-indigo-600 text-sm font-bold py-1 px-3 rounded-full shadow hover:bg-gray-100 transition">
-                            ${sponsorAd.buttonText}
-                        </a>
-                    </div>
-                    <div class="w-1/3">
-                        <img src="${sponsorAd.image}" class="w-full h-full object-cover" alt="Ad">
-                    </div>
+                <div class="p-5 flex-1 flex flex-col justify-center">
+                    <span class="bg-indigo-600 text-[10px] font-bold px-2.5 py-1 rounded w-max uppercase tracking-wider mb-2">Sponsored</span>
+                    <h3 class="font-extrabold text-lg leading-tight">Pro Padel Gear</h3>
+                    <p class="text-xs text-indigo-200 mt-1.5 mb-3 line-clamp-2">Designer bags engineered in the Kempen. Elevate your post-match style.</p>
+                    <span class="text-sm font-bold text-indigo-400">Shop Now →</span>
+                </div>
+                <div class="w-2/5">
+                    <img src="https://images.unsplash.com/photo-1592709823126-7a725176b9df?auto=format&fit=crop&w=400&q=80" class="w-full h-full object-cover" alt="Ad">
                 </div>
             `;
             feed.appendChild(adCard);
@@ -74,10 +103,51 @@ function renderFeed(filter = 'all') {
     });
 }
 
-// 4. Initial Load
-window.onload = () => renderFeed('all');
+// --- 3. MODAL LOGIC (The "In-Depth" View) ---
+window.openModal = (id) => {
+    const event = appEvents.find(e => e.id === id);
+    if(!event) return;
 
-// 5. Global Filter Function accessible by HTML buttons
-window.filterEvents = (category) => {
-    renderFeed(category);
+    document.getElementById('modal-image').src = event.image;
+    document.getElementById('modal-title').textContent = event.title;
+    document.getElementById('modal-category').textContent = event.category;
+    document.getElementById('modal-date').textContent = event.date;
+    document.getElementById('modal-location').textContent = event.location;
+    document.getElementById('modal-description').innerHTML = event.description;
+    document.getElementById('modal-link').href = event.link;
+
+    const modal = document.getElementById('event-modal');
+    const content = document.getElementById('modal-content');
+    
+    modal.classList.remove('hidden');
+    // Micro-delay ensures the CSS transition fires
+    setTimeout(() => {
+        content.classList.remove('translate-y-full');
+    }, 10);
 };
+
+window.closeModal = () => {
+    const modal = document.getElementById('event-modal');
+    const content = document.getElementById('modal-content');
+    
+    // Slide down first
+    content.classList.add('translate-y-full');
+    // Hide overlay after animation finishes
+    setTimeout(() => {
+        modal.classList.add('hidden');
+    }, 300);
+};
+
+window.filterEvents = (category) => renderFeed(category);
+
+// --- 4. FALLBACK DATA (Demo Mode) ---
+function getMockData() {
+    return [
+        { id: "mock-1", title: "Zomerbar Den Hof", date: "Friday, 19:00", location: "Kasteelplein, Turnhout", category: "Zomerbar", image: "https://images.unsplash.com/photo-1533143716616-98188af41df6?auto=format&fit=crop&w=400&q=80", description: "The biggest pop-up summer bar in Turnhout is back. Enjoy signature cocktails, local craft beers, and a live DJ set as the sun goes down.", link: "https://zomerbardenhof.be" },
+        { id: "mock-2", title: "Kempen Padel Open", date: "Saturday, 09:00 - 18:00", location: "Padelclub Turnhout", category: "Padel", image: "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?auto=format&fit=crop&w=400&q=80", description: "A highly anticipated amateur padel tournament. Food trucks and an open bar will be available for spectators. Registration required for players.", link: "#" },
+        { id: "mock-3", title: "Acoustic Forest Sessions", date: "Sunday, 15:00", location: "Vosselaar Woods", category: "Music", image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=400&q=80", description: "An intimate, unplugged concert hidden deep in the woods. Bring your own blanket and drinks. Location will be sent upon ticket purchase.", link: "#" }
+    ];
+}
+
+// Start the app!
+window.onload = initializeApp;
