@@ -1,72 +1,68 @@
-// --- CONFIGURATION ---
-// You will replace this with your real key from Platform Publiq later
-const PUBLIQ_API_KEY = 'YOUR_API_KEY_HERE'; 
-const POSTAL_CODE = '2300'; // Turnhout
+// --- GLOBAL STATE ---
+let appEvents = []; 
 
-let appEvents = []; // Global state to hold fetched events
-
-// --- 1. FETCH LIVE DATA ---
+// --- 1. INITIALIZE & FETCH DATA ---
 async function initializeApp() {
     const feed = document.getElementById('event-feed');
-    feed.innerHTML = '<div class="text-center mt-20"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto"></div><p class="text-gray-500 mt-4 font-medium">Finding events in the Kempen...</p></div>';
-
-    if (PUBLIQ_API_KEY === 'YOUR_API_KEY_HERE') {
-        console.warn("No API key detected. Booting in Demo Mode.");
-        appEvents = getMockData(); // Load dummy data for UI testing
-        setTimeout(() => renderFeed('all'), 800);
-        return;
-    }
+    
+    // Show a loading spinner while fetching
+    feed.innerHTML = `
+        <div class="text-center mt-20">
+            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto"></div>
+            <p class="text-gray-500 mt-4 font-medium">Loading the latest events...</p>
+        </div>
+    `;
 
     try {
-        // Fetching real events from UiTdatabank for Turnhout area
-        const response = await fetch(`https://search.uitdatabank.be/events/?q=postalCode:${POSTAL_CODE}&embed=true&limit=15`, {
-            headers: { 'X-Api-Key': PUBLIQ_API_KEY }
-        });
+        // Fetch the locally generated JSON file created by your GitHub scraper
+        // Note: Make sure 'events.json' is pushed to your repository for this to work
+        const response = await fetch('./events.json');
         
-        if (!response.ok) throw new Error('API Request Failed');
+        if (!response.ok) {
+            throw new Error('events.json not found or not ready yet.');
+        }
         
-        const data = await response.json();
-        
-        // Map the complex Publiq JSON into our clean App format
-        appEvents = data.member.map((item, index) => ({
-            id: item['@id'] || `event-${index}`,
-            title: item.name?.nl || item.name || 'Local Event',
-            date: item.startDate ? new Date(item.startDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute:'2-digit' }) : 'Date TBA',
-            location: item.location?.name?.nl || 'Turnhout',
-            category: item.terms ? item.terms[0]?.label : 'Event',
-            image: item.image || 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=400&q=80',
-            description: item.description?.nl || 'Join us for this exciting local event in the heart of the Kempen.',
-            link: item.url || item['@id']
-        }));
-
+        appEvents = await response.json();
         renderFeed('all');
 
     } catch (error) {
-        console.error("Fetch error:", error);
-        appEvents = getMockData(); // Graceful fallback
-        renderFeed('all');
+        console.warn("Fetch warning:", error.message);
+        console.log("Loading Demo Data as a fallback.");
+        appEvents = getMockData(); // Fallback to demo data if the file isn't ready
+        
+        // Small delay to make the loading transition look smooth
+        setTimeout(() => {
+            renderFeed('all');
+        }, 500);
     }
 }
 
-// --- 2. RENDER THE UI ---
+// --- 2. RENDER THE EVENT FEED ---
 function renderFeed(filter = 'all') {
     const feed = document.getElementById('event-feed');
     feed.innerHTML = ''; 
 
-    // Normalize filter matching
+    // Filter logic: Check if the category matches the button pressed
     const filteredEvents = filter === 'all' 
         ? appEvents 
         : appEvents.filter(e => e.category.toLowerCase().includes(filter.toLowerCase()) || e.id.includes(filter));
 
+    // Handle empty states
     if (filteredEvents.length === 0) {
-        feed.innerHTML = '<p class="text-center text-gray-500 mt-10">No events found for this filter.</p>';
+        feed.innerHTML = `
+            <div class="text-center mt-20">
+                <p class="text-gray-500 font-medium">No events found for this category.</p>
+                <button onclick="filterEvents('all')" class="mt-4 text-indigo-600 font-bold text-sm">View all events</button>
+            </div>
+        `;
         return;
     }
 
+    // Build the UI Cards
     filteredEvents.forEach((event, index) => {
         const card = document.createElement('div');
         // Make the entire card clickable
-        card.className = 'bg-white rounded-2xl shadow-sm mb-5 overflow-hidden border border-gray-100 cursor-pointer transform transition hover:shadow-md hover:-translate-y-1';
+        card.className = 'bg-white rounded-2xl shadow-sm mb-5 overflow-hidden border border-gray-100 cursor-pointer transform transition hover:shadow-md hover:-translate-y-1 fade-in';
         card.onclick = () => openModal(event.id); 
         
         card.innerHTML = `
@@ -82,11 +78,11 @@ function renderFeed(filter = 'all') {
         `;
         feed.appendChild(card);
 
-        // Inject your eCommerce Ad after the 2nd event
+        // --- MONETIZATION: Inject your eCommerce Ad after the 2nd event ---
         if (index === 1) {
             const adCard = document.createElement('div');
-            adCard.className = 'bg-gradient-to-br from-gray-900 to-indigo-900 rounded-2xl shadow-md mb-5 overflow-hidden text-white flex cursor-pointer';
-            adCard.onclick = () => window.open('https://your-shopify-store.com', '_blank');
+            adCard.className = 'bg-gradient-to-br from-gray-900 to-indigo-900 rounded-2xl shadow-md mb-5 overflow-hidden text-white flex cursor-pointer fade-in';
+            adCard.onclick = () => window.open('https://your-shopify-store.com', '_blank'); // Link to your store
             adCard.innerHTML = `
                 <div class="p-5 flex-1 flex flex-col justify-center">
                     <span class="bg-indigo-600 text-[10px] font-bold px-2.5 py-1 rounded w-max uppercase tracking-wider mb-2">Sponsored</span>
@@ -103,24 +99,34 @@ function renderFeed(filter = 'all') {
     });
 }
 
-// --- 3. MODAL LOGIC (The "In-Depth" View) ---
+// --- 3. MODAL LOGIC (The Bottom Sheet) ---
 window.openModal = (id) => {
+    // Find the specific event clicked
     const event = appEvents.find(e => e.id === id);
-    if(!event) return;
+    if (!event) return;
 
+    // Populate the modal content
     document.getElementById('modal-image').src = event.image;
     document.getElementById('modal-title').textContent = event.title;
     document.getElementById('modal-category').textContent = event.category;
     document.getElementById('modal-date').textContent = event.date;
     document.getElementById('modal-location').textContent = event.location;
     document.getElementById('modal-description').innerHTML = event.description;
-    document.getElementById('modal-link').href = event.link;
+    
+    const linkBtn = document.getElementById('modal-link');
+    if (event.link && event.link !== '#') {
+        linkBtn.href = event.link;
+        linkBtn.style.display = 'block';
+    } else {
+        linkBtn.style.display = 'none'; // Hide button if there is no link
+    }
 
+    // Trigger animations to show the modal
     const modal = document.getElementById('event-modal');
     const content = document.getElementById('modal-content');
     
     modal.classList.remove('hidden');
-    // Micro-delay ensures the CSS transition fires
+    // Micro-delay ensures the CSS transition fires correctly
     setTimeout(() => {
         content.classList.remove('translate-y-full');
     }, 10);
@@ -130,24 +136,65 @@ window.closeModal = () => {
     const modal = document.getElementById('event-modal');
     const content = document.getElementById('modal-content');
     
-    // Slide down first
+    // Slide down animation first
     content.classList.add('translate-y-full');
-    // Hide overlay after animation finishes
+    
+    // Hide overlay after the slide animation finishes (300ms)
     setTimeout(() => {
         modal.classList.add('hidden');
     }, 300);
 };
 
-window.filterEvents = (category) => renderFeed(category);
+// --- 4. FILTERING ROUTER ---
+window.filterEvents = (category) => {
+    renderFeed(category);
+};
 
-// --- 4. FALLBACK DATA (Demo Mode) ---
+// --- 5. FALLBACK DATA (Demo Mode) ---
 function getMockData() {
     return [
-        { id: "mock-1", title: "Zomerbar Den Hof", date: "Friday, 19:00", location: "Kasteelplein, Turnhout", category: "Zomerbar", image: "https://images.unsplash.com/photo-1533143716616-98188af41df6?auto=format&fit=crop&w=400&q=80", description: "The biggest pop-up summer bar in Turnhout is back. Enjoy signature cocktails, local craft beers, and a live DJ set as the sun goes down.", link: "https://zomerbardenhof.be" },
-        { id: "mock-2", title: "Kempen Padel Open", date: "Saturday, 09:00 - 18:00", location: "Padelclub Turnhout", category: "Padel", image: "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?auto=format&fit=crop&w=400&q=80", description: "A highly anticipated amateur padel tournament. Food trucks and an open bar will be available for spectators. Registration required for players.", link: "#" },
-        { id: "mock-3", title: "Acoustic Forest Sessions", date: "Sunday, 15:00", location: "Vosselaar Woods", category: "Music", image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=400&q=80", description: "An intimate, unplugged concert hidden deep in the woods. Bring your own blanket and drinks. Location will be sent upon ticket purchase.", link: "#" }
+        { 
+            id: "mock-1", 
+            title: "Zomerbar Den Hof Opening", 
+            date: "Friday, 19:00", 
+            location: "Kasteelplein, Turnhout", 
+            category: "Zomerbar", 
+            image: "https://images.unsplash.com/photo-1533143716616-98188af41df6?auto=format&fit=crop&w=400&q=80", 
+            description: "The biggest pop-up summer bar in Turnhout is back. Enjoy signature cocktails, local craft beers, and a live DJ set as the sun goes down.", 
+            link: "https://example.com/zomerbar" 
+        },
+        { 
+            id: "mock-2", 
+            title: "Kempen Padel Open", 
+            date: "Saturday, 09:00 - 18:00", 
+            location: "Padelclub Turnhout", 
+            category: "Padel", 
+            image: "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?auto=format&fit=crop&w=400&q=80", 
+            description: "A highly anticipated amateur padel tournament. Food trucks and an open bar will be available for spectators. Registration required for players.", 
+            link: "#" 
+        },
+        { 
+            id: "mock-3", 
+            title: "Acoustic Forest Sessions", 
+            date: "Sunday, 15:00", 
+            location: "Vosselaar Woods", 
+            category: "Music", 
+            image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=400&q=80", 
+            description: "An intimate, unplugged concert hidden deep in the woods. Bring your own blanket and drinks. Location will be sent upon ticket purchase.", 
+            link: "#" 
+        },
+        { 
+            id: "mock-4", 
+            title: "Sunday Local Market", 
+            date: "Sunday, 08:00 - 13:00", 
+            location: "Grote Markt, Turnhout", 
+            category: "Market", 
+            image: "https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=400&q=80", 
+            description: "Discover the best local produce, handmade crafts, and fresh food from vendors all across the Kempen region.", 
+            link: "#" 
+        }
     ];
 }
 
-// Start the app!
+// --- BOOT UP ---
 window.onload = initializeApp;
